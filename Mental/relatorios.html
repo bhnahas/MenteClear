@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MenteClear | Relatórios</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body style="background:var(--bg)">
+
+    <nav class="navbar" style="justify-content:center">
+        <a href="index.html" style="text-decoration:none">
+            <div class="navbar-brand">🧠 MenteClear</div>
+        </a>
+    </nav>
+
+    <div class="report-header">
+        <h1 style="font-size:36px;margin-bottom:8px">Painel Profissional</h1>
+        <p style="font-size:20px;opacity:0.8">Acompanhamento de desempenho cognitivo</p>
+    </div>
+
+    <div class="container" style="padding-top:40px;padding-bottom:60px">
+        <div id="auth-box" class="card" style="max-width:400px;margin:0 auto;text-align:center">
+            <h3 style="margin-bottom:16px">Acesso Restrito</h3>
+            <p style="color:var(--text-muted);margin-bottom:20px;font-size:16px">Insira a senha para ver os relatórios (senha: admin)</p>
+            <input type="password" id="pwd" class="form-input" style="margin-bottom:16px;text-align:center" placeholder="Senha do profissional">
+            <button class="btn btn-primary" style="width:100%" onclick="checkAuth()">Acessar Relatórios</button>
+            <div id="auth-err" style="color:var(--danger);margin-top:10px;display:none;font-weight:600">Senha incorreta</div>
+        </div>
+
+        <div id="report-content" style="display:none">
+            <div class="stats-row" id="summary-stats">
+                <!-- Injected via JS -->
+            </div>
+            
+            <div class="chart-wrap">
+                <h3 class="chart-title">Desempenho Geral ao Longo do Tempo (%)</h3>
+                <canvas id="timeChart" height="100"></canvas>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+                <div class="chart-wrap" style="margin-bottom:0">
+                    <h3 class="chart-title">Aproveitamento por Categoria</h3>
+                    <canvas id="radarChart" height="200"></canvas>
+                </div>
+                <div class="chart-wrap" style="margin-bottom:0">
+                    <h3 class="chart-title">Pontos por Atividade</h3>
+                    <canvas id="barChart" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function checkAuth() {
+            if(document.getElementById('pwd').value === 'admin') {
+                document.getElementById('auth-box').style.display = 'none';
+                document.getElementById('report-content').style.display = 'block';
+                loadReports();
+            } else {
+                document.getElementById('auth-err').style.display = 'block';
+            }
+        }
+
+        function loadReports() {
+            const history = JSON.parse(localStorage.getItem('mc_history')) || [];
+            if(history.length === 0) {
+                document.getElementById('report-content').innerHTML = '<div class="card" style="text-align:center;padding:40px"><h3>Nenhum dado disponível ainda.</h3><p style="color:var(--text-muted);margin-top:10px">Jogue algumas partidas para gerar relatórios.</p></div>';
+                return;
+            }
+
+            // Summary
+            const totalGames = history.length;
+            const avgScore = Math.round(history.reduce((a,b)=>a+(b.score/b.maxScore*100),0)/totalGames);
+            const totalTime = Math.round(history.reduce((a,b)=>a+(b.timePlayed/1000),0)/60); // minutes
+
+            document.getElementById('summary-stats').innerHTML = `
+                <div class="stat-card"><div class="stat-value">${totalGames}</div><div class="stat-label">Atividades Concluídas</div></div>
+                <div class="stat-card"><div class="stat-value">${avgScore}%</div><div class="stat-label">Aproveitamento Médio</div></div>
+                <div class="stat-card"><div class="stat-value">${totalTime}m</div><div class="stat-label">Tempo Total de Estímulo</div></div>
+            `;
+
+            Chart.defaults.font.family = "'Inter', sans-serif";
+            Chart.defaults.color = '#64748B';
+
+            // Time chart
+            const labelsTime = history.map((h,i) => `Play ${i+1}`);
+            const dataTime = history.map(h => Math.round((h.score/h.maxScore)*100));
+            new Chart(document.getElementById('timeChart'), {
+                type: 'line',
+                data: {
+                    labels: labelsTime,
+                    datasets: [{
+                        label: 'Acertos (%)', data: dataTime,
+                        borderColor: '#6366F1', backgroundColor: 'rgba(99,102,241,0.1)',
+                        borderWidth: 3, tension: 0.3, fill: true
+                    }]
+                },
+                options: { responsive: true, scales: { y: { beginAtZero: true, max: 100 } } }
+            });
+
+            // Radar Categories
+            const categories = {
+                'Curto Prazo': ['associacao','sequencia'],
+                'Médio Prazo': ['historia','rostos'],
+                'Longo Prazo': ['timeline','quiz'],
+                'Lógica & Atenção': ['logica','diferencas'],
+                'Linguagem': ['linguagem']
+            };
+            const catScores = {}; const catCounts = {};
+            for(let c in categories) { catScores[c] = 0; catCounts[c] = 0; }
+            
+            history.forEach(h => {
+                for(let c in categories) {
+                    if(categories[c].includes(h.gameId)) {
+                        catScores[c] += (h.score/h.maxScore)*100;
+                        catCounts[c]++;
+                    }
+                }
+            });
+
+            const radarLabels = Object.keys(categories);
+            const radarData = radarLabels.map(l => catCounts[l] > 0 ? Math.round(catScores[l]/catCounts[l]) : 0);
+
+            new Chart(document.getElementById('radarChart'), {
+                type: 'radar',
+                data: {
+                    labels: radarLabels,
+                    datasets: [{
+                        label: 'Proficiência Média (%)',
+                        data: radarData,
+                        backgroundColor: 'rgba(16,185,129,0.2)',
+                        borderColor: '#10B981', pointBackgroundColor: '#10B981'
+                    }]
+                },
+                options: { scales: { r: { beginAtZero: true, max: 100 } } }
+            });
+
+            // Bar chart by game
+            const gameTitles = { associacao:'Imagens', sequencia:'Sequência', historia:'Histórias', rostos:'Rostos', timeline:'Linha do Tempo', quiz:'Quiz', logica:'Lógica', diferencas:'Atenção', linguagem:'Linguagem' };
+            const gameArr = Object.keys(gameTitles);
+            const gameData = gameArr.map(id => {
+                const gs = history.filter(h => h.gameId === id);
+                return gs.length ? Math.round(gs.reduce((a,b)=>a+(b.score/b.maxScore*100),0)/gs.length) : 0;
+            });
+
+            new Chart(document.getElementById('barChart'), {
+                type: 'bar',
+                data: {
+                    labels: gameArr.map(id => gameTitles[id]),
+                    datasets: [{
+                        label: 'Aproveitamento (%)',
+                        data: gameData,
+                        backgroundColor: '#F59E0B', borderRadius: 4
+                    }]
+                },
+                options: { indexAxis: 'y', responsive: true, scales: { x: { beginAtZero: true, max: 100 } }, plugins: { legend: { display: false } } }
+            });
+        }
+    </script>
+</body>
+</html>
